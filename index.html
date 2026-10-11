@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="مبلغين">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   :root{
     --primary:#1F4E79; --primary-2:#2b6aa3; --accent:#2E7D32;
@@ -21,7 +21,7 @@
     --border:#d6dde6; --danger:#c62828; --danger-bg:#fdecea; --radius:14px;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;padding:0}
+  html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
   body{font-family:'Tajawal',Tahoma,sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.6}
   [hidden]{display:none !important}
   .topbar{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;padding:18px 16px 20px;text-align:center}
@@ -78,7 +78,7 @@
   .spinner{width:56px;height:56px;border:6px solid #dbe5ef;border-top-color:var(--primary);border-radius:50%;margin:30px auto 16px;animation:spin 1s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   .ref{font-size:30px;font-weight:800;color:var(--primary);margin:6px 0 14px}
-  .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  .hp{position:absolute;top:0;right:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;clip-path:inset(50%)}
 </style>
 </head>
 <body>
@@ -218,13 +218,20 @@
   /* ===== تحميل القوائم ===== */
   function loadOptions() {
     setErr('load-err', ''); $('btn-retry').hidden = true;
+    // فتح فوري: إذا كانت القوائم محفوظة في الهاتف يظهر النموذج مباشرة ثم تُحدَّث القوائم في الخلفية
+    if (!state.opts) {
+      try { var c = JSON.parse(load('opts_cache') || 'null'); if (c && c.provinces) { state.opts = c; buildForm(c); show('form'); } } catch (x) {}
+    }
     fetch(API + '?action=options&t=' + Date.now())
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
+        store('opts_cache', JSON.stringify(res.options));
+        if (state.opts) return; // النموذج ظاهر من النسخة المحفوظة، والتحديث يُستعمل في الفتح القادم
         state.opts = res.options; buildForm(res.options); show('form');
       })
       .catch(function (e) {
+        if (state.opts) return;
         if ((window.__tries = (window.__tries || 0) + 1) < 3) { setTimeout(loadOptions, 2000); return; }
         setErr('load-err', navigator.onLine ? 'تعذّر تحميل النموذج، حاول مرة أخرى' : 'لا يوجد اتصال بالإنترنت');
         $('btn-retry').hidden = false;
@@ -300,11 +307,11 @@
     reader.onload = function () {
       var img = new Image();
       img.onload = function () {
-        var max = 1600, w = img.width, h = img.height;
+        var max = 1280, w = img.width, h = img.height;
         if (w > max || h > max) { var r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
         var c = document.createElement('canvas'); c.width = w; c.height = h;
         c.getContext('2d').drawImage(img, 0, 0, w, h);
-        var url = c.toDataURL('image/jpeg', 0.82);
+        var url = c.toDataURL('image/jpeg', 0.72);
         cb(null, { name: file.name.replace(/\.[^.]+$/, ''), data: url.split(',')[1], preview: url });
       };
       img.onerror = function () { cb('تعذّر قراءة الصورة: ' + file.name); };
