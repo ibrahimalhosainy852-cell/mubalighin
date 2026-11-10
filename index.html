@@ -94,6 +94,16 @@
   .combo .other{color:var(--primary);font-weight:700}
   .picked{display:none;margin-top:6px;font-size:13px;color:var(--accent)}
   .picked.on{display:block}
+
+  /* ===== النشاط الجماعي: اختيار المشاركين ===== */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--primary);color:#fff;border-radius:18px;padding:5px 12px;font-size:14px}
+  .chip button{border:0;background:rgba(255,255,255,.25);color:#fff;width:22px;height:22px;border-radius:50%;font-size:14px;line-height:22px;padding:0;cursor:pointer}
+  .names{max-height:240px;overflow:auto;border:1.5px solid var(--border);border-radius:10px;margin-top:8px}
+  .names div{padding:10px 12px;border-bottom:1px solid #edf0f4;cursor:pointer}
+  .names div:last-child{border-bottom:0}
+  .names .none{color:var(--muted);cursor:default;font-size:14px}
+  .group-box.invalid-group .names{border-color:var(--danger)}
 </style>
 </head>
 <body>
@@ -121,6 +131,19 @@
 
     <div class="card">
       <h2><span class="num">1</span> بيانات المبلغ</h2>
+      <label>نوع المشاركة <span class="req">*</span></label>
+      <div class="seg" id="f-share">
+        <label><input type="radio" name="share" value="فردي">👤 نشاط فردي</label>
+        <label><input type="radio" name="share" value="جماعي">👥 نشاط جماعي</label>
+      </div>
+      <div class="group-box" id="group-box" hidden>
+        <label for="f-psearch">المبلغون المشاركون في النشاط <span class="req">*</span> <span class="opt">(اختر اثنين أو أكثر، وأنت منهم)</span></label>
+        <div class="chips" id="p-chips"></div>
+        <input type="text" id="f-psearch" placeholder="ابحث عن الاسم ثم اضغط عليه" autocomplete="off" oninput="renderNames()" style="margin-top:8px">
+        <div class="names" id="p-names"></div>
+        <p class="hint">يكفي أن يُدخل التقرير مبلغ واحد فقط؛ يُسجَّل النشاط كاملاً لكل مشارك، ويُحسب نشاطاً واحداً في المجموع العام.</p>
+      </div>
+      <div id="name-box">
       <label for="f-name">اسم المبلغ <span class="req">*</span></label>
       <div class="combo" id="name-combo">
         <input type="text" id="f-name" maxlength="100" placeholder="اضغط هنا ثم اختر الاسم أو اكتب جزءاً منه للبحث" autocomplete="off">
@@ -131,6 +154,7 @@
       <div id="other-box" hidden>
         <input type="text" id="f-name-other" maxlength="100" placeholder="اكتب الاسم الثلاثي مع اللقب (الشيخ / السيد)">
         <p class="hint">الاسم غير موجود في القائمة؟ اكتبه كاملاً. <a href="#" onclick="backToList();return false">رجوع إلى القائمة</a></p>
+      </div>
       </div>
       <label for="f-province">المحافظة <span class="req">*</span></label>
       <select id="f-province"></select>
@@ -220,7 +244,7 @@
 <script>
   var API = 'https://script.google.com/macros/s/AKfycbwRehfLOnejw0Xiis0sAP1QmTrasP5sI41lLems0sueDEjMcw4mr7nSd4Qm60CRqTaS4Q/exec';
   var MAX_IMAGES = 5;
-  var state = { images: [], data: null, opts: null };
+  var state = { images: [], data: null, opts: null, partners: [] };
 
 
   /* ===== قائمة الأسماء (للتعديل: أضف أو احذف سطراً بنفس الشكل) =====
@@ -404,7 +428,12 @@
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
         store('opts_cache', JSON.stringify(res.options));
-        if (state.opts) return; // النموذج ظاهر من النسخة المحفوظة، والتحديث يُستعمل في الفتح القادم
+        if (state.opts) {
+          // النموذج ظاهر من النسخة المحفوظة: تُحدَّث قائمة المشاركين فوراً، وبقية القوائم في الفتح القادم
+          state.opts.names = res.options.names || [];
+          if (!$('group-box').hidden) renderNames();
+          return;
+        }
         state.opts = res.options; buildForm(res.options); show('form');
       })
       .catch(function (e) {
@@ -429,6 +458,10 @@
 
     document.querySelectorAll('input[name=period]').forEach(function (r) {
       r.addEventListener('change', function () { markOn('period'); });
+    });
+
+    document.querySelectorAll('input[name=share]').forEach(function (r) {
+      r.addEventListener('change', function () { markOn('share'); toggleGroup(); });
     });
 
     var n = load('rep_name'), pr = load('rep_province');
@@ -460,7 +493,44 @@
   }
   function checked(name) { var r = document.querySelector('input[name=' + name + ']:checked'); return r ? r.value : ''; }
 
+  /* ===== النشاط الجماعي ===== */
+  // قائمة المشاركين من «أسماء المبلغين» في ورقة الإعدادات (نفس القائمة التي يتحقق منها السكربت عند الاستلام)
+  function toggleGroup() {
+    var on = checked('share') === 'جماعي';
+    $('group-box').hidden = !on;
+    $('name-box').hidden = on;
+    if (on) { closeList(); renderNames(); }
+  }
+  function renderNames() {
+    var chips = $('p-chips'); chips.innerHTML = '';
+    state.partners.forEach(function (nm, i) {
+      var c = document.createElement('span'); c.className = 'chip'; c.appendChild(document.createTextNode(nm));
+      var x = document.createElement('button'); x.type = 'button'; x.textContent = '×';
+      x.onclick = function () { state.partners.splice(i, 1); renderNames(); };
+      c.appendChild(x); chips.appendChild(c);
+    });
+    var box = $('p-names'); box.innerHTML = '';
+    var q = norm($('f-psearch').value), words = q ? q.split(' ') : [];
+    var picked = {}; state.partners.forEach(function (nm) { picked[norm(nm)] = 1; });
+    var list = ((state.opts && state.opts.names) || []).filter(function (nm) {
+      var k = norm(nm);
+      return !picked[k] && !words.some(function (w) { return k.indexOf(w) < 0; });
+    });
+    if (!list.length) {
+      var e = document.createElement('div'); e.className = 'none';
+      e.textContent = q ? 'لا يوجد اسم مطابق' : 'لا توجد أسماء أخرى'; box.appendChild(e); return;
+    }
+    list.forEach(function (nm) {
+      var d = document.createElement('div'); d.textContent = nm;
+      d.onclick = function () { state.partners.push(nm); $('f-psearch').value = ''; $('group-box').classList.remove('invalid-group'); renderNames(); };
+      box.appendChild(d);
+    });
+  }
+
   function resetFields() {
+    state.partners = []; $('f-psearch').value = '';
+    document.querySelectorAll('input[name=share]').forEach(function (r) { r.checked = (r.value === 'فردي'); });
+    markOn('share'); toggleGroup();
     $('f-date').value = today(); $('f-date').max = today();
     ['period', 'benef', 'type'].forEach(function (n) {
       document.querySelectorAll('input[name=' + n + ']').forEach(function (r) { r.checked = false; });
@@ -528,8 +598,15 @@
     function mark(id) { $(id).classList.add('invalid'); bad.push(id); }
     function markGroup(id) { $(id).classList.add('invalid-group'); bad.push(id); }
 
-    var name = getName();
-    if (name.length < 3) bad.push(markNameBad());
+    var shareType = checked('share') || 'فردي';
+    var name = '', participants = [];
+    if (shareType === 'جماعي') {
+      if (state.partners.length < 2) markGroup('group-box');
+      else { name = state.partners[0]; participants = state.partners.slice(1); }
+    } else {
+      name = getName();
+      if (name.length < 3) bad.push(markNameBad());
+    }
     var province = $('f-province').value; if (!province) mark('f-province');
     var date = $('f-date').value; if (!date || date > today()) mark('f-date');
     var period = checked('period'); if (!period) markGroup('f-period');
@@ -546,6 +623,7 @@
     setErr('form-err', '');
     return { name: name, province: province, date: date, period: period, duration: duration,
              beneficiary: beneficiary, type: type, summary: $('f-summary').value.trim(),
+             shareType: shareType, participants: participants,
              website: $('f-website').value };
   }
   function durText(min) {
@@ -557,7 +635,9 @@
     var d = collect(); if (!d) return;
     state.data = d;
     var rows = [
-      ['اسم المبلغ', d.name], ['المحافظة', d.province], ['تاريخ النشاط', d.date],
+      d.shareType === 'جماعي' ? ['المبلغون المشاركون', [d.name].concat(d.participants).join('، ')] : ['اسم المبلغ', d.name],
+      ['نوع المشاركة', d.shareType === 'جماعي' ? 'نشاط جماعي' : 'نشاط فردي'],
+      ['المحافظة', d.province], ['تاريخ النشاط', d.date],
       ['الفترة', d.period], ['مدة النشاط', durText(d.duration)],
       ['الجهة المستفيدة', d.beneficiary], ['نوع النشاط', d.type],
       ['الصور', state.images.length ? state.images.length + ' صورة' : 'لا توجد صور'],
@@ -589,8 +669,9 @@
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
         $('btn-send').disabled = false;
-        store('rep_name', d.name); store('rep_province', d.province);
-        $('ref-id').textContent = res.id;
+        if (d.shareType !== 'جماعي') store('rep_name', d.name);
+        store('rep_province', d.province);
+        $('ref-id').textContent = res.ids && res.ids.length > 1 ? res.ids[0] + ' – ' + res.ids[res.ids.length - 1] : res.id;
         show('success');
       })
       .catch(function (e) {
